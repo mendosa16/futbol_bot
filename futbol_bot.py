@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
 ⚽ Futbol Tahmin Telegram Botu
-- Football-Data.org ücretsiz API kullanır
+- API-Football (RapidAPI) kullanır - 900+ lig
 - Günlük maç tahminleri
 - İstatistik analizi
 - Otomatik günlük bildirim
+- Canlı skor takibi
 """
 
 import os
 import logging
-import asyncio
 from datetime import datetime, timedelta
 import requests
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -21,19 +21,22 @@ from telegram.ext import (
 )
 
 # ===================== AYARLAR =====================
-TELEGRAM_TOKEN = "8610318322:AAFUcZ-pSbDIMiX_pK2t7mrWlJJQfdQLsrM"
-FOOTBALL_API_KEY = "03ac61b2f4f644b59923776bd31702e3"
-BILDIRIM_SAATI = "08:00"  # Günlük bildirim saati (HH:MM)
+TELEGRAM_TOKEN = os.getenv("8610318322:AAFUcZ-pSbDIMiX_pK2t7mrWlJJQfdQLsrM", "")
+RAPIDAPI_KEY = os.getenv("1db0888750msh012fb008165834bp13dd00jsne92488d316c1", "")
+BILDIRIM_SAATI = "08:00"
 
-# Takip edilecek ligler (Football-Data.org kodları)
+# Popüler ligler (API-Football league ID'leri)
 LIGLER = {
-    "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier Lig": "PL",
-    "🇩🇪 Bundesliga": "BL1",
-    "🇪🇸 La Liga": "PD",
-    "🇮🇹 Serie A": "SA",
-    "🇫🇷 Ligue 1": "FL1",
-    "🇹🇷 Süper Lig": "TSL",  # Not: Ücretsiz planda olmayabilir
-    "🏆 Şampiyonlar Ligi": "CL",
+    "🇹🇷 Süper Lig": 203,
+    "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier Lig": 39,
+    "🇩🇪 Bundesliga": 78,
+    "🇪🇸 La Liga": 140,
+    "🇮🇹 Serie A": 135,
+    "🇫🇷 Ligue 1": 61,
+    "🏆 Şampiyonlar Ligi": 2,
+    "🌍 Avrupa Ligi": 3,
+    "🇳🇱 Eredivisie": 88,
+    "🇵🇹 Primeira Liga": 94,
 }
 
 # ===================== LOGGING =====================
@@ -45,371 +48,294 @@ logger = logging.getLogger(__name__)
 
 # ===================== API SINIFI =====================
 class FootballAPI:
-    BASE_URL = "https://api.football-data.org/v4"
+    BASE_URL = "https://api-football-v1.p.rapidapi.com/v3"
 
     def __init__(self, api_key: str):
-        self.headers = {"X-Auth-Token": api_key}
+        self.headers = {
+            "X-RapidAPI-Key": api_key,
+            "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"
+        }
 
-    def get_matches(self, tarih: str = None, lig_kodu: str = None) -> dict:
-        """Belirli bir tarihteki maçları çeker."""
+    def get_fixtures(self, tarih: str = None, lig_id: int = None) -> list:
         if tarih is None:
             tarih = datetime.now().strftime("%Y-%m-%d")
-
-        url = f"{self.BASE_URL}/matches"
-        params = {"date": tarih}
-        if lig_kodu:
-            url = f"{self.BASE_URL}/competitions/{lig_kodu}/matches"
-            params["dateFrom"] = tarih
-            params["dateTo"] = tarih
-
+        params = {"date": tarih, "timezone": "Europe/Istanbul"}
+        if lig_id:
+            params["league"] = lig_id
+            params["season"] = datetime.now().year
         try:
-            resp = requests.get(url, headers=self.headers, params=params, timeout=10)
+            resp = requests.get(f"{self.BASE_URL}/fixtures", headers=self.headers, params=params, timeout=10)
             resp.raise_for_status()
-            return resp.json()
+            return resp.json().get("response", [])
         except Exception as e:
-            logger.error(f"API hatası: {e}")
+            logger.error(f"Fixtures hatası: {e}")
+            return []
+
+    def get_standings(self, lig_id: int) -> list:
+        params = {"league": lig_id, "season": datetime.now().year}
+        try:
+            resp = requests.get(f"{self.BASE_URL}/standings", headers=self.headers, params=params, timeout=10)
+            resp.raise_for_status()
+            data = resp.json().get("response", [])
+            if data:
+                return data[0].get("league", {}).get("standings", [[]])[0]
+            return []
+        except Exception as e:
+            logger.error(f"Standings hatası: {e}")
+            return []
+
+    def get_team_stats(self, takim_id: int, lig_id: int) -> dict:
+        params = {"team": takim_id, "league": lig_id, "season": datetime.now().year}
+        try:
+            resp = requests.get(f"{self.BASE_URL}/teams/statistics", headers=self.headers, params=params, timeout=10)
+            resp.raise_for_status()
+            return resp.json().get("response", {})
+        except Exception as e:
+            logger.error(f"Team stats hatası: {e}")
             return {}
 
-    def get_standings(self, lig_kodu: str) -> dict:
-        """Lig puan durumunu çeker."""
-        url = f"{self.BASE_URL}/competitions/{lig_kodu}/standings"
+    def get_predictions(self, fixture_id: int) -> dict:
+        params = {"fixture": fixture_id}
         try:
-            resp = requests.get(url, headers=self.headers, timeout=10)
+            resp = requests.get(f"{self.BASE_URL}/predictions", headers=self.headers, params=params, timeout=10)
             resp.raise_for_status()
-            return resp.json()
+            data = resp.json().get("response", [])
+            return data[0] if data else {}
         except Exception as e:
-            logger.error(f"Puan durumu hatası: {e}")
+            logger.error(f"Predictions hatası: {e}")
             return {}
 
-    def get_team_stats(self, takim_id: int) -> dict:
-        """Takım istatistiklerini çeker."""
-        url = f"{self.BASE_URL}/teams/{takim_id}/matches"
-        params = {"limit": 10, "status": "FINISHED"}
+    def get_live_fixtures(self) -> list:
+        params = {"live": "all"}
         try:
-            resp = requests.get(url, headers=self.headers, params=params, timeout=10)
+            resp = requests.get(f"{self.BASE_URL}/fixtures", headers=self.headers, params=params, timeout=10)
             resp.raise_for_status()
-            return resp.json()
+            return resp.json().get("response", [])
         except Exception as e:
-            logger.error(f"Takım istatistik hatası: {e}")
-            return {}
+            logger.error(f"Live fixtures hatası: {e}")
+            return []
 
 
 # ===================== TAHMİN MOTORU =====================
 class TahminMotoru:
-    """Basit istatistik tabanlı tahmin sistemi."""
 
     @staticmethod
-    def son_form_analiz(maclar: list, takim_id: int) -> dict:
-        """Son 5 maçtaki form analizi."""
-        galibiyet = beraberlik = maglubiyet = 0
-        atilan = yenilen = 0
-
-        for mac in maclar[-5:]:
-            ev = mac.get("homeTeam", {}).get("id") == takim_id
-            ev_gol = mac.get("score", {}).get("fullTime", {}).get("home", 0) or 0
-            dep_gol = mac.get("score", {}).get("fullTime", {}).get("away", 0) or 0
-
-            if ev:
-                atilan += ev_gol
-                yenilen += dep_gol
-                if ev_gol > dep_gol:
-                    galibiyet += 1
-                elif ev_gol == dep_gol:
-                    beraberlik += 1
-                else:
-                    maglubiyet += 1
-            else:
-                atilan += dep_gol
-                yenilen += ev_gol
-                if dep_gol > ev_gol:
-                    galibiyet += 1
-                elif dep_gol == ev_gol:
-                    beraberlik += 1
-                else:
-                    maglubiyet += 1
-
-        toplam = galibiyet + beraberlik + maglubiyet
-        form_puani = (galibiyet * 3 + beraberlik) / max(toplam * 3, 1) * 100
-
-        return {
-            "galibiyet": galibiyet,
-            "beraberlik": beraberlik,
-            "maglubiyet": maglubiyet,
-            "atilan": atilan,
-            "yenilen": yenilen,
-            "form_puani": round(form_puani, 1),
-        }
+    def analiz_et(stats: dict) -> dict:
+        if not stats:
+            return {"form_puani": 50, "gol_ort": 1.0, "form_str": "?????"}
+        form = stats.get("form", "") or ""
+        form_puani = 0
+        for c in form[-5:]:
+            if c == "W": form_puani += 3
+            elif c == "D": form_puani += 1
+        form_yuzdesi = (form_puani / 15) * 100
+        gol_data = stats.get("goals", {}).get("for", {}).get("average", {})
+        gol_ort = float(gol_data.get("total", 1.0) or 1.0)
+        return {"form_puani": round(form_yuzdesi, 1), "gol_ort": gol_ort, "form_str": form[-5:] if form else "?????"}
 
     @staticmethod
-    def mac_tahmini(ev_formu: dict, dep_formu: dict) -> str:
-        """Form verilerine göre maç tahmini üretir."""
-        ev_puan = ev_formu["form_puani"]
-        dep_puan = dep_formu["form_puani"]
-
-        # Ev sahibi avantajı (+10 puan)
-        ev_puan_ayarli = ev_puan + 10
-
-        fark = ev_puan_ayarli - dep_puan
-
+    def tahmin_uret(ev_stats: dict, dep_stats: dict, prediction: dict = None) -> tuple:
+        if prediction:
+            percent = prediction.get("predictions", {}).get("percent", {})
+            if percent:
+                ev_y = int(percent.get("home", "0").replace("%", "") or 0)
+                dep_y = int(percent.get("away", "0").replace("%", "") or 0)
+                ber_y = int(percent.get("draws", "0").replace("%", "") or 0)
+                if ev_y >= dep_y and ev_y >= ber_y:
+                    return "🏠 Ev Sahibi Kazanır", ev_y
+                elif dep_y >= ev_y and dep_y >= ber_y:
+                    return "✈️ Deplasman Kazanır", dep_y
+                else:
+                    return "🤝 Beraberlik", ber_y
+        ev_puan = ev_stats.get("form_puani", 50) + 10
+        dep_puan = dep_stats.get("form_puani", 50)
+        fark = ev_puan - dep_puan
         if fark > 20:
-            tahmin = "🏠 Ev Sahibi Kazanır"
-            guven = min(85, 60 + int(fark / 2))
-        elif fark > 8:
-            tahmin = "🏠 Ev Sahibi Kazanır / Beraberlik"
-            guven = 55
+            return "🏠 Ev Sahibi Kazanır", min(80, 60 + int(fark / 2))
         elif fark < -20:
-            tahmin = "✈️ Deplasman Kazanır"
-            guven = min(80, 60 + int(abs(fark) / 2))
-        elif fark < -8:
-            tahmin = "✈️ Deplasman Kazanır / Beraberlik"
-            guven = 55
+            return "✈️ Deplasman Kazanır", min(80, 60 + int(abs(fark) / 2))
         else:
-            tahmin = "🤝 Beraberlik / Her İki Takım da Kazanabilir"
-            guven = 50
-
-        return tahmin, guven
+            return "🤝 Beraberlik / Her İkisi", 50
 
 
-# ===================== MESAJ FORMATLARI =====================
-def format_mac_listesi(maclar: list) -> str:
-    """Maç listesini güzel formatta döndürür."""
+# ===================== FORMAT =====================
+def format_mac_listesi(maclar: list, lig_adi: str = "") -> str:
     if not maclar:
         return "📭 Bugün için maç bulunamadı."
-
-    mesaj = f"⚽ *BUGÜNÜN MAÇLARI* ({datetime.now().strftime('%d.%m.%Y')})\n"
-    mesaj += "━━━━━━━━━━━━━━━━━━━━━━\n\n"
-
-    for mac in maclar[:15]:  # Max 15 maç göster
-        ev = mac.get("homeTeam", {}).get("shortName", "?")
-        dep = mac.get("awayTeam", {}).get("shortName", "?")
-        durum = mac.get("status", "")
-        utc_time = mac.get("utcDate", "")
-
-        # Saati Türkiye saatine çevir (UTC+3)
+    baslik = f"⚽ *{lig_adi} MAÇLARI*" if lig_adi else "⚽ *BUGÜNÜN MAÇLARI*"
+    mesaj = f"{baslik} ({datetime.now().strftime('%d.%m.%Y')})\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    for mac in maclar[:15]:
+        fixture = mac.get("fixture", {})
+        teams = mac.get("teams", {})
+        goals = mac.get("goals", {})
+        status = fixture.get("status", {}).get("short", "")
+        ev = teams.get("home", {}).get("name", "?")
+        dep = teams.get("away", {}).get("name", "?")
         try:
-            mac_dt = datetime.strptime(utc_time, "%Y-%m-%dT%H:%M:%SZ")
+            mac_dt = datetime.fromisoformat(fixture.get("date", "").replace("Z", "+00:00"))
             mac_dt = mac_dt + timedelta(hours=3)
             saat = mac_dt.strftime("%H:%M")
         except:
             saat = "?"
-
-        if durum == "FINISHED":
-            ev_gol = mac.get("score", {}).get("fullTime", {}).get("home", "-")
-            dep_gol = mac.get("score", {}).get("fullTime", {}).get("away", "-")
-            mesaj += f"✅ {ev} *{ev_gol} - {dep_gol}* {dep}\n"
-        elif durum == "IN_PLAY":
-            mesaj += f"🔴 CANLI: {ev} vs {dep}\n"
+        if status == "FT":
+            mesaj += f"✅ {ev} *{goals.get('home', '-')}-{goals.get('away', '-')}* {dep}\n"
+        elif status in ["1H", "2H", "HT"]:
+            dakika = fixture.get("status", {}).get("elapsed", "?")
+            mesaj += f"🔴 {dakika}' | {ev} *{goals.get('home', 0)}-{goals.get('away', 0)}* {dep}\n"
         else:
             mesaj += f"🕐 {saat} | {ev} vs {dep}\n"
-
-    mesaj += "\n💡 /tahmin - Detaylı analiz al"
     return mesaj
 
 
-def format_puan_durumu(standings_data: dict, lig_adi: str) -> str:
-    """Puan durumunu formatlı döndürür."""
-    try:
-        tablo = standings_data["standings"][0]["table"]
-    except:
+def format_puan_durumu(tablo: list, lig_adi: str) -> str:
+    if not tablo:
         return "❌ Puan durumu alınamadı."
-
-    mesaj = f"📊 *{lig_adi} PUAN DURUMU*\n"
-    mesaj += "━━━━━━━━━━━━━━━━━━━━━━\n"
-    mesaj += "`#  Takım           O   G   B   M   P`\n"
-
+    mesaj = f"📊 *{lig_adi} PUAN DURUMU*\n━━━━━━━━━━━━━━━━━━━━━━\n"
+    mesaj += "`#   Takım            O   G   B   M   P`\n"
     for satir in tablo[:10]:
-        pos = satir.get("position", "?")
-        takim = satir.get("team", {}).get("shortName", "?")[:12].ljust(12)
-        o = satir.get("playedGames", 0)
-        g = satir.get("won", 0)
-        b = satir.get("draw", 0)
-        m = satir.get("lost", 0)
-        p = satir.get("points", 0)
-
-        # İlk 4 = Şampiyonlar Ligi, son 3 = Küme düşme
+        pos = satir.get("rank", "?")
+        takim = satir.get("team", {}).get("name", "?")[:13].ljust(13)
+        a = satir.get("all", {})
+        o, g, b, m, p = a.get("played",0), a.get("win",0), a.get("draw",0), a.get("lose",0), satir.get("points",0)
         emoji = "🏆" if pos <= 4 else ("🔴" if pos >= len(tablo) - 2 else "  ")
         mesaj += f"`{str(pos).rjust(2)} {emoji}{takim} {str(o).rjust(2)} {str(g).rjust(2)} {str(b).rjust(2)} {str(m).rjust(2)} {str(p).rjust(3)}`\n"
-
     return mesaj
 
 
-# ===================== BOT KOMUTLARI =====================
-api = FootballAPI(FOOTBALL_API_KEY)
+# ===================== KOMUTLAR =====================
+api = FootballAPI(RAPIDAPI_KEY)
 tahmin_motoru = TahminMotoru()
-
-# Bildirim listesi (kullanıcı ID'leri)
 bildirim_listesi: set = set()
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Bot başlangıç komutu."""
     mesaj = (
         "⚽ *FUTBOL TAHMİN BOTUNA HOŞGELDİN!*\n\n"
-        "📌 *Kullanılabilir komutlar:*\n\n"
+        "📌 *Komutlar:*\n\n"
         "🗓 /bugun - Bugünün maçları\n"
+        "🔴 /canli - Canlı maçlar\n"
         "📊 /puan - Puan durumu\n"
         "🎯 /tahmin - Maç tahminleri\n"
         "🔔 /bildirim - Günlük bildirim aç/kapat\n"
         "ℹ️ /hakkinda - Bot hakkında\n\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "💡 Her gün saat 08:00'de otomatik maç özeti gönderilir!"
+        "💡 Her gün 08:00'de otomatik maç özeti!"
     )
     await update.message.reply_text(mesaj, parse_mode="Markdown")
 
 
 async def bugun(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Bugünün maçlarını gösterir."""
-    await update.message.reply_text("⏳ Maçlar yükleniyor...", parse_mode="Markdown")
+    keyboard = [[InlineKeyboardButton(a, callback_data=f"bugun_{i}_{a}")] for a, i in LIGLER.items()]
+    keyboard.append([InlineKeyboardButton("🌍 Tüm Maçlar", callback_data="bugun_0_Tüm Maçlar")])
+    await update.message.reply_text("🗓 *Hangi ligin maçlarını görmek istiyorsun?*",
+        reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
-    data = api.get_matches()
-    maclar = data.get("matches", [])
 
-    mesaj = format_mac_listesi(maclar)
+async def canli(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("⏳ Canlı maçlar yükleniyor...")
+    maclar = api.get_live_fixtures()
+    if not maclar:
+        await update.message.reply_text("📭 Şu an canlı maç yok.")
+        return
+    mesaj = f"🔴 *CANLI MAÇLAR* ({len(maclar)} maç)\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    for mac in maclar[:10]:
+        teams = mac.get("teams", {})
+        goals = mac.get("goals", {})
+        fixture = mac.get("fixture", {})
+        lig = mac.get("league", {}).get("name", "")
+        dakika = fixture.get("status", {}).get("elapsed", "?")
+        ev = teams.get("home", {}).get("name", "?")
+        dep = teams.get("away", {}).get("name", "?")
+        mesaj += f"⚽ *{lig}*\n🔴 {dakika}' | {ev} *{goals.get('home',0)}-{goals.get('away',0)}* {dep}\n\n"
     await update.message.reply_text(mesaj, parse_mode="Markdown")
 
 
 async def puan_durumu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Lig seçim menüsü gösterir."""
-    keyboard = []
-    for lig_adi, lig_kodu in list(LIGLER.items())[:6]:
-        keyboard.append([InlineKeyboardButton(lig_adi, callback_data=f"puan_{lig_kodu}_{lig_adi}")])
-
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(
-        "📊 *Hangi ligin puan durumunu görmek istiyorsun?*",
-        reply_markup=reply_markup,
-        parse_mode="Markdown"
-    )
+    keyboard = [[InlineKeyboardButton(a, callback_data=f"puan_{i}_{a}")] for a, i in LIGLER.items()]
+    await update.message.reply_text("📊 *Hangi ligin puan durumunu görmek istiyorsun?*",
+        reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 
 async def tahmin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Lig seçim menüsü gösterir (tahmin için)."""
-    keyboard = []
-    for lig_adi, lig_kodu in list(LIGLER.items())[:6]:
-        keyboard.append([InlineKeyboardButton(lig_adi, callback_data=f"tahmin_{lig_kodu}_{lig_adi}")])
+    keyboard = [[InlineKeyboardButton(a, callback_data=f"tahmin_{i}_{a}")] for a, i in LIGLER.items()]
+    await update.message.reply_text("🎯 *Hangi lig için tahmin almak istiyorsun?*",
+        reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
-    reply_markup = InlineKeyboardMarkup(keyboard)
+
+async def bildirim(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id in bildirim_listesi:
+        bildirim_listesi.remove(user_id)
+        await update.message.reply_text("🔕 Günlük bildirimler *kapatıldı*.", parse_mode="Markdown")
+    else:
+        bildirim_listesi.add(user_id)
+        await update.message.reply_text(f"🔔 Günlük bildirimler *açıldı!*\nHer gün {BILDIRIM_SAATI}'de özet gelecek.", parse_mode="Markdown")
+
+
+async def hakkinda(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🎯 *Hangi lig için tahmin almak istiyorsun?*",
-        reply_markup=reply_markup,
+        "ℹ️ *FUTBOL TAHMİN BOTU*\n\n📡 API-Football (900+ lig)\n🤖 AI destekli tahmin\n🔴 Canlı skor\n📊 Detaylı istatistik\n\n⚠️ Tahminler istatistiksel analize dayanır.",
         parse_mode="Markdown"
     )
 
 
-async def bildirim(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Günlük bildirimi aç/kapat."""
-    user_id = update.effective_user.id
-
-    if user_id in bildirim_listesi:
-        bildirim_listesi.remove(user_id)
-        await update.message.reply_text(
-            "🔕 Günlük bildirimler *kapatıldı*.\n\n"
-            "Tekrar açmak için /bildirim yaz.",
-            parse_mode="Markdown"
-        )
-    else:
-        bildirim_listesi.add(user_id)
-        await update.message.reply_text(
-            f"🔔 Günlük bildirimler *açıldı!*\n\n"
-            f"Her gün saat {BILDIRIM_SAATI}'de maç özetini alacaksın.",
-            parse_mode="Markdown"
-        )
-
-
-async def hakkinda(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Bot hakkında bilgi."""
-    mesaj = (
-        "ℹ️ *FUTBOL TAHMİN BOTU*\n\n"
-        "📡 Veri kaynağı: football-data.org\n"
-        "🤖 Tahmin motoru: Form analizi + Ev sahibi avantajı\n\n"
-        "⚠️ *Uyarı:* Tahminler %100 kesin değildir. "
-        "Sadece istatistiksel analize dayanır.\n\n"
-        "🆕 Veriler her maç öncesi güncellenir."
-    )
-    await update.message.reply_text(mesaj, parse_mode="Markdown")
-
-
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Inline buton işleyicisi."""
     query = update.callback_query
     await query.answer()
+    parts = query.data.split("_", 2)
+    islem, lig_id, lig_adi = parts[0], int(parts[1]), parts[2] if len(parts) > 2 else ""
 
-    data = query.data
-    parts = data.split("_", 2)
-    islem = parts[0]
-    lig_kodu = parts[1]
-    lig_adi = parts[2] if len(parts) > 2 else lig_kodu
+    if islem == "bugun":
+        await query.edit_message_text("⏳ Maçlar yükleniyor...")
+        maclar = api.get_fixtures(lig_id=lig_id if lig_id else None)
+        await query.edit_message_text(format_mac_listesi(maclar, lig_adi), parse_mode="Markdown")
 
-    if islem == "puan":
+    elif islem == "puan":
         await query.edit_message_text("⏳ Puan durumu yükleniyor...")
-        standings = api.get_standings(lig_kodu)
-        mesaj = format_puan_durumu(standings, lig_adi)
-        await query.edit_message_text(mesaj, parse_mode="Markdown")
+        tablo = api.get_standings(lig_id)
+        await query.edit_message_text(format_puan_durumu(tablo, lig_adi), parse_mode="Markdown")
 
     elif islem == "tahmin":
         await query.edit_message_text("⏳ Tahminler hesaplanıyor...")
-        tarih = datetime.now().strftime("%Y-%m-%d")
-        data_mac = api.get_matches(tarih=tarih, lig_kodu=lig_kodu)
-        maclar = data_mac.get("matches", [])
-
+        maclar = api.get_fixtures(lig_id=lig_id)
         if not maclar:
-            await query.edit_message_text(
-                f"📭 {lig_adi} için bugün maç bulunamadı."
-            )
+            await query.edit_message_text(f"📭 {lig_adi} için bugün maç bulunamadı.")
             return
 
-        mesaj = f"🎯 *{lig_adi} TAHMİNLERİ*\n"
-        mesaj += f"📅 {datetime.now().strftime('%d.%m.%Y')}\n"
-        mesaj += "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        mesaj = f"🎯 *{lig_adi} TAHMİNLERİ*\n📅 {datetime.now().strftime('%d.%m.%Y')}\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
 
         for mac in maclar[:5]:
-            ev_takim = mac.get("homeTeam", {})
-            dep_takim = mac.get("awayTeam", {})
-            ev_id = ev_takim.get("id")
-            dep_id = dep_takim.get("id")
-            ev_adi = ev_takim.get("shortName", "?")
-            dep_adi = dep_takim.get("shortName", "?")
+            teams = mac.get("teams", {})
+            fixture_id = mac.get("fixture", {}).get("id")
+            ev_adi = teams.get("home", {}).get("name", "?")
+            dep_adi = teams.get("away", {}).get("name", "?")
+            ev_id = teams.get("home", {}).get("id")
+            dep_id = teams.get("away", {}).get("id")
 
-            # Form verisi çek
-            ev_maclar = api.get_team_stats(ev_id).get("matches", [])
-            dep_maclar = api.get_team_stats(dep_id).get("matches", [])
+            prediction = api.get_predictions(fixture_id)
+            ev_stats = tahmin_motoru.analiz_et(api.get_team_stats(ev_id, lig_id))
+            dep_stats = tahmin_motoru.analiz_et(api.get_team_stats(dep_id, lig_id))
+            tahmin_sonuc, guven = tahmin_motoru.tahmin_uret(ev_stats, dep_stats, prediction)
 
-            ev_formu = tahmin_motoru.son_form_analiz(ev_maclar, ev_id)
-            dep_formu = tahmin_motoru.son_form_analiz(dep_maclar, dep_id)
-            tahmin_sonuc, guven = tahmin_motoru.mac_tahmini(ev_formu, dep_formu)
-
-            # Güven çubuğu
-            dolu = int(guven / 10)
-            bos = 10 - dolu
-            cubuk = "█" * dolu + "░" * bos
-
+            cubuk = "█" * int(guven/10) + "░" * (10 - int(guven/10))
             mesaj += f"⚔️ *{ev_adi}* vs *{dep_adi}*\n"
-            mesaj += f"   🏠 Form: {ev_formu['galibiyet']}G {ev_formu['beraberlik']}B {ev_formu['maglubiyet']}M\n"
-            mesaj += f"   ✈️ Form: {dep_formu['galibiyet']}G {dep_formu['beraberlik']}B {dep_formu['maglubiyet']}M\n"
-            mesaj += f"   💡 Tahmin: {tahmin_sonuc}\n"
-            mesaj += f"   📈 Güven: [{cubuk}] %{guven}\n\n"
+            mesaj += f"   🏠 Form: `{ev_stats.get('form_str','?????')}`\n"
+            mesaj += f"   ✈️ Form: `{dep_stats.get('form_str','?????')}`\n"
+            mesaj += f"   💡 {tahmin_sonuc}\n"
+            mesaj += f"   📈 [{cubuk}] %{guven}\n\n"
 
         mesaj += "⚠️ _Tahminler istatistiksel analize dayanır._"
         await query.edit_message_text(mesaj, parse_mode="Markdown")
 
 
-# ===================== GÜNLÜK BİLDİRİM =====================
 async def gunluk_bildirim_gonder(context: ContextTypes.DEFAULT_TYPE):
-    """Her gün belirlenen saatte tüm abonelere bildirim gönderir."""
     if not bildirim_listesi:
         return
-
-    data = api.get_matches()
-    maclar = data.get("matches", [])
-    mesaj = format_mac_listesi(maclar)
-
+    maclar = api.get_fixtures(lig_id=203) + api.get_fixtures(lig_id=39)
+    mesaj = f"🌅 *GÜNLÜK FUTBOL BÜLTENİ*\n\n" + format_mac_listesi(maclar[:10])
     for user_id in bildirim_listesi.copy():
         try:
-            await context.bot.send_message(
-                chat_id=user_id,
-                text=f"🌅 *GÜNLÜK FUTBOL BÜLTENİ*\n\n{mesaj}",
-                parse_mode="Markdown"
-            )
+            await context.bot.send_message(chat_id=user_id, text=mesaj, parse_mode="Markdown")
         except Exception as e:
             logger.warning(f"Bildirim gönderilemedi {user_id}: {e}")
             bildirim_listesi.discard(user_id)
@@ -417,25 +343,18 @@ async def gunluk_bildirim_gonder(context: ContextTypes.DEFAULT_TYPE):
 
 # ===================== MAIN =====================
 def main():
-    """Botu başlat."""
     app = Application.builder().token(TELEGRAM_TOKEN).build()
-
-    # Komut işleyicileri
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("bugun", bugun))
+    app.add_handler(CommandHandler("canli", canli))
     app.add_handler(CommandHandler("puan", puan_durumu))
     app.add_handler(CommandHandler("tahmin", tahmin))
     app.add_handler(CommandHandler("bildirim", bildirim))
     app.add_handler(CommandHandler("hakkinda", hakkinda))
     app.add_handler(CallbackQueryHandler(button_handler))
-
-    # Günlük bildirim job'u - her gün BILDIRIM_SAATI'nde çalışır
     saat, dakika = map(int, BILDIRIM_SAATI.split(":"))
-    app.job_queue.run_daily(
-        gunluk_bildirim_gonder,
-        time=datetime.now().replace(hour=saat, minute=dakika, second=0).time()
-    )
-
+    app.job_queue.run_daily(gunluk_bildirim_gonder,
+        time=datetime.now().replace(hour=saat, minute=dakika, second=0).time())
     logger.info("⚽ Futbol Bot başlatıldı!")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
