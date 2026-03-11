@@ -21,7 +21,7 @@ from telegram.ext import (
 )
 
 # ===================== AYARLAR =====================
-TELEGRAM_TOKEN = "8610318322:AAE8ylN7txpmro21b74ca1XvNQY6taBATec"
+TELEGRAM_TOKEN = "8610318322:AAFUcZ-pSbDIMiX_pK2t7mrWlJJQfdQLsrM"
 FOOTBALL_API_KEY = "03ac61b2f4f644b59923776bd31702e3"
 BILDIRIM_SAATI = "08:00"  # Günlük bildirim saati (HH:MM)
 
