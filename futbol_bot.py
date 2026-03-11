@@ -21,8 +21,8 @@ from telegram.ext import (
 )
 
 # ===================== AYARLAR =====================
-TELEGRAM_TOKEN = os.getenv("8610318322:AAFUcZ-pSbDIMiX_pK2t7mrWlJJQfdQLsrM", "")
-RAPIDAPI_KEY = os.getenv("1db0888750msh012fb008165834bp13dd00jsne92488d316c1", "")
+TELEGRAM_TOKEN = "8610318322:AAFUcZ-pSbDIMiX_pK2t7mrWlJJQfdQLsrM"
+RAPIDAPI_KEY = "1db0888750msh012fb008165834bp13dd00jsne92488d316c1"
 BILDIRIM_SAATI = "08:00"
 
 # Popüler ligler (API-Football league ID'leri)
