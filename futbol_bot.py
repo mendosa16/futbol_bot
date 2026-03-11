@@ -21,8 +21,8 @@ from telegram.ext import (
 )
 
 # ===================== AYARLAR =====================
-TELEGRAM_TOKEN = os.getenv("8610318322:AAE8ylN7txpmro21b74calXvNQY6taBATec", "")
-FOOTBALL_API_KEY = os.getenv("03ac61b2f4f644b59923776bd31702e3", "")
+TELEGRAM_TOKEN = "8610318322:AAE8ylN7txpmro21b74ca1XvNQY6taBATec"
+FOOTBALL_API_KEY = "03ac61b2f4f644b59923776bd31702e3"
 BILDIRIM_SAATI = "08:00"  # Günlük bildirim saati (HH:MM)
 
 # Takip edilecek ligler (Football-Data.org kodları)
