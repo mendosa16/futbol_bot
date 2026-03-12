@@ -22,8 +22,8 @@ from telegram.ext import (
 )
 
 # ===================== AYARLAR =====================
-TELEGRAM_TOKEN = os.getenv("8610318322:AAFUcZ-pSbDIMiX_pK2t7mrWlJJQfdQLsrM", "")
-SPORTMONKS_TOKEN = os.getenv("DBpi7Y9xIYITSA3ccbBebklEDtt6AnwjLRcifquGZrlJ7Z7NGptnvoygOH5n", "")
+TELEGRAM_TOKEN = "8610318322:AAFUcZ-pSbDIMiX_pK2t7mrWlJJQfdQLsrM"
+SPORTMONKS_TOKEN = "DxHRy2fkqS7dWuNRckoxrmMdPQH0mRfvz7oMR5HGcNXQQrQrNjrgel1v8VIA"
 BILDIRIM_SAATI = "08:00"
 
 BASE_URL = "https://api.sportmonks.com/v3/football"
