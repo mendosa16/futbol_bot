@@ -11,22 +11,76 @@ SPORTMONKS_TOKEN = "DxHRy2fkqS7dWuNRckoxrmMdPQH0mRfvz7oMR5HGcNXQQrQrNjrgel1v8VIA
 BILDIRIM_SAATI = "08:00"
 BASE_URL = "https://api.sportmonks.com/v3/football"
 
+
 LIGLER = {
-    "🇹🇷 Süper Lig":       600,
-    "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier Lig":     8,
-    "🇩🇪 Bundesliga":      82,
-    "🇪🇸 La Liga":         564,
-    "🇮🇹 Serie A":         384,
-    "🇫🇷 Ligue 1":         301,
-    "🇳🇱 Eredivisie":      72,
-    "🇵🇹 Liga Portugal":   462,
-    "🇧🇪 Pro League":      208,
-    "🏆 Şampiyonlar Ligi": 2,
-    "🌍 Avrupa Ligi":      5,
-    "🇹🇷 Türkiye Kupası":  606,
+    # Türkiye
+    "🇹🇷 Süper Lig":         600,
+    "🇹🇷 Türkiye Kupası":    606,
+    # İngiltere
+    "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier Lig":       8,
+    "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Championship":       9,
+    "🏴󠁧󠁢󠁥󠁮󠁧󠁿 FA Cup":             24,
+    # Almanya
+    "🇩🇪 Bundesliga":        82,
+    "🇩🇪 2. Bundesliga":     85,
+    # İspanya
+    "🇪🇸 La Liga":           564,
+    "🇪🇸 La Liga 2":         567,
+    "🇪🇸 Copa Del Rey":      570,
+    # İtalya
+    "🇮🇹 Serie A":           384,
+    "🇮🇹 Serie B":           387,
+    "🇮🇹 Coppa Italia":      390,
+    # Fransa
+    "🇫🇷 Ligue 1":           301,
+    # Hollanda
+    "🇳🇱 Eredivisie":        72,
+    # Portekiz
+    "🇵🇹 Liga Portugal":     462,
+    # Belçika
+    "🇧🇪 Pro League":        208,
+    # İskoçya
+    "🏴󠁧󠁢󠁳󠁣󠁴󠁿 Premiership":       501,
+    # Avusturya
+    "🇦🇹 Bundesliga":        181,
+    # Polonya
+    "🇵🇱 Ekstraklasa":       453,
+    # İsveç
+    "🇸🇪 Allsvenskan":       573,
+    # Norveç
+    "🇳🇴 Eliteserien":       444,
+    # İsviçre
+    "🇨🇭 Super League":      591,
+    # Amerika
+    "🇺🇸 MLS":               779,
+    # Brezilya
+    "🇧🇷 Brasileirao":       648,
+    # Arjantin
+    "🇦🇷 Liga Profesional":  636,
+}
+
+# Maç menüsünde gösterilecek popüler ligler (buton listesi için)
+POPULER_LIGLER = {
+    "🇹🇷 Süper Lig":         600,
+    "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier Lig":       8,
+    "🇩🇪 Bundesliga":        82,
+    "🇪🇸 La Liga":           564,
+    "🇮🇹 Serie A":           384,
+    "🇫🇷 Ligue 1":           301,
+    "🇳🇱 Eredivisie":        72,
+    "🇵🇹 Liga Portugal":     462,
+    "🇧🇪 Pro League":        208,
+    "🇹🇷 Türkiye Kupası":    606,
+    "🇮🇹 Coppa Italia":      390,
+    "🇪🇸 Copa Del Rey":      570,
+    "🏴󠁧󠁢󠁥󠁮󠁧󠁿 FA Cup":             24,
+    "🇧🇷 Brasileirao":       648,
+    "🇦🇷 Liga Profesional":  636,
+    "🇺🇸 MLS":               779,
 }
 
 TUMU = list(LIGLER.values())
+POPULER_IDS = list(POPULER_LIGLER.values())
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -267,7 +321,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_bugun(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    kb = [[InlineKeyboardButton(a, callback_data="bugun|" + str(i))] for a, i in LIGLER.items()]
+    kb = [[InlineKeyboardButton(a, callback_data="bugun|" + str(i))] for a, i in POPULER_LIGLER.items()]
     kb.append([InlineKeyboardButton("🌍 Tüm Seçili Ligler", callback_data="bugun|0")])
     await update.message.reply_text(
         "🗓 *Hangi ligin maçlarını görmek istiyorsun?*",
@@ -295,28 +349,28 @@ async def cmd_canli(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_puan(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    kb = [[InlineKeyboardButton(a, callback_data="puan|" + str(i))] for a, i in LIGLER.items()]
+    kb = [[InlineKeyboardButton(a, callback_data="puan|" + str(i))] for a, i in POPULER_LIGLER.items()]
     await update.message.reply_text(
         "📊 *Hangi ligin puan durumunu görmek istiyorsun?*",
         reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
 
 
 async def cmd_tahmin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    kb = [[InlineKeyboardButton(a, callback_data="tahmin|" + str(i))] for a, i in LIGLER.items()]
+    kb = [[InlineKeyboardButton(a, callback_data="tahmin|" + str(i))] for a, i in POPULER_LIGLER.items()]
     await update.message.reply_text(
         "🎯 *Hangi lig için tahmin almak istiyorsun?*",
         reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
 
 
 async def cmd_istatistik(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    kb = [[InlineKeyboardButton(a, callback_data="istat|" + str(i))] for a, i in LIGLER.items()]
+    kb = [[InlineKeyboardButton(a, callback_data="istat|" + str(i))] for a, i in POPULER_LIGLER.items()]
     await update.message.reply_text(
         "📈 *Hangi ligin istatistiklerini görmek istiyorsun?*",
         reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
 
 
 async def cmd_golkralligi(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    kb = [[InlineKeyboardButton(a, callback_data="golkral|" + str(i))] for a, i in LIGLER.items()]
+    kb = [[InlineKeyboardButton(a, callback_data="golkral|" + str(i))] for a, i in POPULER_LIGLER.items()]
     await update.message.reply_text(
         "👑 *Hangi ligin gol krallığını görmek istiyorsun?*",
         reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
@@ -339,7 +393,8 @@ async def btn_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await q.answer()
     islem, deger = q.data.split("|", 1)
     lig_id = int(deger)
-    lig_adi = next((a for a, i in LIGLER.items() if i == lig_id), "Tüm Ligler")
+    tum_dict = {**LIGLER, **POPULER_LIGLER}
+    lig_adi = next((a for a, i in tum_dict.items() if i == lig_id), "Tüm Ligler")
     tarih = datetime.now().strftime("%Y-%m-%d")
 
     if islem == "bugun":
