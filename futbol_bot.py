@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
 ⚽ Futbol Tahmin Telegram Botu
-- API-Football (RapidAPI) kullanır - 900+ lig
-- Günlük maç tahminleri
-- İstatistik analizi
-- Otomatik günlük bildirim
+- api-football.com direkt API kullanır
+- 900+ lig (Süper Lig dahil)
+- Günlük maç tahminleri, istatistik analizi
 - Canlı skor takibi
+- Otomatik günlük bildirim
 """
 
 import os
@@ -21,11 +21,10 @@ from telegram.ext import (
 )
 
 # ===================== AYARLAR =====================
-TELEGRAM_TOKEN = "8610318322:AAFUcZ-pSbDIMiX_pK2t7mrWlJJQfdQLsrM"
-RAPIDAPI_KEY = "1fdfe32100d5b7c9be44d36e89c6c21e"
+TELEGRAM_TOKEN = os.getenv("8610318322:AAFUcZ-pSbDIMiX_pK2t7mrWlJJQfdQLsrM", "")
+FOOTBALL_API_KEY = os.getenv("1fdfe32100d5b7c9be44d36e89c6c21e", "")
 BILDIRIM_SAATI = "08:00"
 
-# Popüler ligler (API-Football league ID'leri)
 LIGLER = {
     "🇹🇷 Süper Lig": 203,
     "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier Lig": 39,
@@ -39,21 +38,17 @@ LIGLER = {
     "🇵🇹 Primeira Liga": 94,
 }
 
-# ===================== LOGGING =====================
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO
-)
+logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 
 # ===================== API SINIFI =====================
 class FootballAPI:
-    BASE_URL = "https://api-football-v1.p.rapidapi.com/v3"
+    BASE_URL = "https://v3.football.api-sports.io"
 
     def __init__(self, api_key: str):
         self.headers = {
-            "X-RapidAPI-Key": api_key,
-            "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"
+            "x-apisports-key": api_key
         }
 
     def get_fixtures(self, tarih: str = None, lig_id: int = None) -> list:
@@ -124,10 +119,7 @@ class TahminMotoru:
         if not stats:
             return {"form_puani": 50, "gol_ort": 1.0, "form_str": "?????"}
         form = stats.get("form", "") or ""
-        form_puani = 0
-        for c in form[-5:]:
-            if c == "W": form_puani += 3
-            elif c == "D": form_puani += 1
+        form_puani = sum(3 if c == "W" else 1 if c == "D" else 0 for c in form[-5:])
         form_yuzdesi = (form_puani / 15) * 100
         gol_data = stats.get("goals", {}).get("for", {}).get("average", {})
         gol_ort = float(gol_data.get("total", 1.0) or 1.0)
@@ -178,10 +170,10 @@ def format_mac_listesi(maclar: list, lig_adi: str = "") -> str:
         except:
             saat = "?"
         if status == "FT":
-            mesaj += f"✅ {ev} *{goals.get('home', '-')}-{goals.get('away', '-')}* {dep}\n"
+            mesaj += f"✅ {ev} *{goals.get('home','-')}-{goals.get('away','-')}* {dep}\n"
         elif status in ["1H", "2H", "HT"]:
             dakika = fixture.get("status", {}).get("elapsed", "?")
-            mesaj += f"🔴 {dakika}' | {ev} *{goals.get('home', 0)}-{goals.get('away', 0)}* {dep}\n"
+            mesaj += f"🔴 {dakika}' | {ev} *{goals.get('home',0)}-{goals.get('away',0)}* {dep}\n"
         else:
             mesaj += f"🕐 {saat} | {ev} vs {dep}\n"
     return mesaj
@@ -203,7 +195,7 @@ def format_puan_durumu(tablo: list, lig_adi: str) -> str:
 
 
 # ===================== KOMUTLAR =====================
-api = FootballAPI(RAPIDAPI_KEY)
+api = FootballAPI(FOOTBALL_API_KEY)
 tahmin_motoru = TahminMotoru()
 bildirim_listesi: set = set()
 
@@ -269,12 +261,19 @@ async def bildirim(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🔕 Günlük bildirimler *kapatıldı*.", parse_mode="Markdown")
     else:
         bildirim_listesi.add(user_id)
-        await update.message.reply_text(f"🔔 Günlük bildirimler *açıldı!*\nHer gün {BILDIRIM_SAATI}'de özet gelecek.", parse_mode="Markdown")
+        await update.message.reply_text(
+            f"🔔 Günlük bildirimler *açıldı!*\nHer gün {BILDIRIM_SAATI}'de özet gelecek.",
+            parse_mode="Markdown")
 
 
 async def hakkinda(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "ℹ️ *FUTBOL TAHMİN BOTU*\n\n📡 API-Football (900+ lig)\n🤖 AI destekli tahmin\n🔴 Canlı skor\n📊 Detaylı istatistik\n\n⚠️ Tahminler istatistiksel analize dayanır.",
+        "ℹ️ *FUTBOL TAHMİN BOTU*\n\n"
+        "📡 api-football.com (900+ lig)\n"
+        "🤖 AI destekli tahmin motoru\n"
+        "🔴 Canlı skor takibi\n"
+        "📊 Detaylı istatistikler\n\n"
+        "⚠️ Tahminler istatistiksel analize dayanır.",
         parse_mode="Markdown"
     )
 
@@ -303,7 +302,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         mesaj = f"🎯 *{lig_adi} TAHMİNLERİ*\n📅 {datetime.now().strftime('%d.%m.%Y')}\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
-
         for mac in maclar[:5]:
             teams = mac.get("teams", {})
             fixture_id = mac.get("fixture", {}).get("id")
@@ -332,7 +330,7 @@ async def gunluk_bildirim_gonder(context: ContextTypes.DEFAULT_TYPE):
     if not bildirim_listesi:
         return
     maclar = api.get_fixtures(lig_id=203) + api.get_fixtures(lig_id=39)
-    mesaj = f"🌅 *GÜNLÜK FUTBOL BÜLTENİ*\n\n" + format_mac_listesi(maclar[:10])
+    mesaj = "🌅 *GÜNLÜK FUTBOL BÜLTENİ*\n\n" + format_mac_listesi(maclar[:10])
     for user_id in bildirim_listesi.copy():
         try:
             await context.bot.send_message(chat_id=user_id, text=mesaj, parse_mode="Markdown")
