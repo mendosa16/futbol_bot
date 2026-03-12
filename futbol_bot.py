@@ -71,7 +71,7 @@ class SportmonksAPI:
         return self._get("livescores/inplay", params).get("data", [])
 
     def get_standings(self, season_id: int) -> list:
-        params = {"include": "participant"}
+        params = {"include": "participant;details"}
         return self._get(f"standings/seasons/{season_id}", params).get("data", [])
 
     def get_league_season(self, league_id: int) -> int:
@@ -156,24 +156,45 @@ def format_mac_listesi(maclar: list, lig_adi: str = "") -> str:
     return mesaj
 
 
+def parse_details(details) -> dict:
+    """
+    Sportmonks details array'ini parse eder.
+    type_id: 129=oynanan, 130=galibiyet, 131=beraberlik, 132=mağlubiyet
+             133=gol_atti, 134=gol_yedi, 179=averaj
+    """
+    result = {}
+    if isinstance(details, list):
+        mapping = {
+            129: "o", 130: "g", 131: "b", 132: "m",
+            133: "gf", 134: "ga", 179: "avg"
+        }
+        for item in details:
+            tid = item.get("type_id")
+            if tid in mapping:
+                result[mapping[tid]] = item.get("value", 0)
+    return result
+
+
 def format_standings(tablo: list, lig_adi: str) -> str:
     if not tablo:
         return "❌ Puan durumu alınamadı."
 
     mesaj = f"📊 *{lig_adi} PUAN DURUMU*\n━━━━━━━━━━━━━━━━━━━━━━\n"
-    mesaj += "`#   Takım            O   G   B   M   P`\n"
+    mesaj += "`#   Takım            O  G  B  M   P  Av`\n"
 
     for satir in tablo[:18]:
         pos = satir.get("position", "?")
         takim = satir.get("participant", {}).get("name", "?")[:13].ljust(13)
-        d = satir.get("details", {})
-        o = str(d.get("games_played", 0)).rjust(2)
-        g = str(d.get("won", 0)).rjust(2)
-        b = str(d.get("draw", 0)).rjust(2)
-        m = str(d.get("lost", 0)).rjust(2)
+        d = parse_details(satir.get("details", []))
+        o = str(d.get("o", 0)).rjust(2)
+        g = str(d.get("g", 0)).rjust(2)
+        b = str(d.get("b", 0)).rjust(2)
+        m = str(d.get("m", 0)).rjust(2)
         p = str(satir.get("points", 0)).rjust(3)
+        avg = d.get("avg", 0)
+        avg_str = (f"+{avg}" if avg > 0 else str(avg)).rjust(3)
         emoji = "🏆" if pos <= 4 else ("🔴" if pos >= len(tablo) - 2 else "  ")
-        mesaj += f"`{str(pos).rjust(2)} {emoji}{takim} {o} {g} {b} {m} {p}`\n"
+        mesaj += f"`{str(pos).rjust(2)} {emoji}{takim} {o} {g} {b} {m} {p} {avg_str}`\n"
 
     return mesaj
 
@@ -409,11 +430,23 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("❌ Veri alınamadı.")
             return
         mesaj = f"📈 *{lig_adi} İSTATİSTİKLER*\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        for s in tablo[:10]:
+        for s in tablo[:12]:
             takim = s.get("participant", {}).get("name", "?")
-            d = s.get("details", {})
-            mesaj += f"🔵 *{takim}* — {s.get('points',0)} puan\n"
-            mesaj += f"   {d.get('won',0)}G {d.get('draw',0)}B {d.get('lost',0)}M | ⚽{d.get('goals_scored','?')}/{d.get('goals_against','?')}\n\n"
+            pos = s.get("position", "?")
+            p = s.get("points", 0)
+            d = parse_details(s.get("details", []))
+            o = d.get("o", 0)
+            g = d.get("g", 0)
+            b = d.get("b", 0)
+            m = d.get("m", 0)
+            gf = d.get("gf", "?")
+            ga = d.get("ga", "?")
+            avg = d.get("avg", 0)
+            avg_str = f"+{avg}" if avg > 0 else str(avg)
+            emoji = "🏆" if pos <= 4 else ("🔴" if pos >= 16 else "🔵")
+            mesaj += f"{emoji} *{pos}. {takim}* — {p} puan\n"
+            mesaj += f"   {o} maç: {g}G {b}B {m}M\n"
+            mesaj += f"   ⚽ {gf} gol attı / {ga} yedi | Averaj: {avg_str}\n\n"
         await query.edit_message_text(mesaj, parse_mode="Markdown")
 
     elif islem == "golkral":
