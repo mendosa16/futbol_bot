@@ -21,8 +21,8 @@ from telegram.ext import (
 )
 
 # ===================== AYARLAR =====================
-TELEGRAM_TOKEN = os.getenv("8610318322:AAFUcZ-pSbDIMiX_pK2t7mrWlJJQfdQLsrM", "")
-FOOTBALL_API_KEY = os.getenv("1fdfe32100d5b7c9be44d36e89c6c21e", "")
+TELEGRAM_TOKEN = "8610318322:AAFUcZ-pSbDIMiX_pK2t7mrWlJJQfdQLsrM"
+FOOTBALL_API_KEY = "1fdfe32100d5b7c9be44d36e89c6c21e"
 BILDIRIM_SAATI = "08:00"
 
 LIGLER = {
