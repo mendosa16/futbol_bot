@@ -1,63 +1,59 @@
 #!/usr/bin/env python3
-"""
-⚽ Futbol Analiz & Tahmin Telegram Botu
-Sportmonks API v3 - Doğru Lig ID'leri
-"""
-
 import os
 import logging
 from datetime import datetime, timedelta
 import requests
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    Application, CommandHandler, CallbackQueryHandler, ContextTypes,
-)
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
-# ===================== AYARLAR =====================
 TELEGRAM_TOKEN = "8610318322:AAFUcZ-pSbDIMiX_pK2t7mrWlJJQfdQLsrM"
 SPORTMONKS_TOKEN = "DxHRy2fkqS7dWuNRckoxrmMdPQH0mRfvz7oMR5HGcNXQQrQrNjrgel1v8VIA"
 BILDIRIM_SAATI = "08:00"
 BASE_URL = "https://api.sportmonks.com/v3/football"
 
-# ✅ Doğru Sportmonks Lig ID'leri
 LIGLER = {
-    "🇹🇷 Süper Lig":        600,
-    "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier Lig":      8,
-    "🇩🇪 Bundesliga":       82,
-    "🇪🇸 La Liga":          564,
-    "🇮🇹 Serie A":          384,
-    "🇫🇷 Ligue 1":          301,
-    "🇳🇱 Eredivisie":       72,
-    "🇵🇹 Liga Portugal":    462,
-    "🇧🇪 Pro League":       208,
-    "🏆 Şampiyonlar Ligi":  2,
-    "🌍 Avrupa Ligi":       5,
-    "🇹🇷 Türkiye Kupası":   606,
+    "Sper Lig":        600,
+    "Premier Lig":      8,
+    "Bundesliga":       82,
+    "La Liga":          564,
+    "Serie A":          384,
+    "Ligue 1":          301,
+    "Eredivisie":       72,
+    "Liga Portugal":    462,
+    "Pro League":       208,
+    "Sampiyonlar Ligi": 2,
+    "Avrupa Ligi":      5,
+    "Turkiye Kupasi":   606,
 }
 
-logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
+LIG_EMOJI = {
+    600: "TR", 8: "EN", 82: "DE", 564: "ES", 384: "IT",
+    301: "FR", 72: "NL", 462: "PT", 208: "BE", 2: "UCL", 5: "UEL", 606: "CUP"
+}
+
+TUMU_LIG_IDS = list(LIGLER.values())
+logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-# ===================== API =====================
 class SportmonksAPI:
-    def __init__(self, token: str):
+    def __init__(self, token):
         self.token = token
         self.session = requests.Session()
 
-    def _get(self, endpoint: str, params: dict = None) -> dict:
+    def _get(self, endpoint, params=None):
         if params is None:
             params = {}
         params["api_token"] = self.token
         try:
-            resp = self.session.get(f"{BASE_URL}/{endpoint}", params=params, timeout=15)
-            resp.raise_for_status()
-            return resp.json()
+            r = self.session.get(f"{BASE_URL}/{endpoint}", params=params, timeout=15)
+            r.raise_for_status()
+            return r.json()
         except Exception as e:
-            logger.error(f"API hatası [{endpoint}]: {e}")
+            logger.error(f"API [{endpoint}]: {e}")
             return {}
 
-    def get_fixtures_by_date(self, tarih: str, lig_id: int = None) -> list:
+    def get_fixtures_by_date(self, tarih, lig_id=None):
         params = {
             "include": "participants;scores;state;league",
             "timezone": "Europe/Istanbul",
@@ -66,108 +62,78 @@ class SportmonksAPI:
             params["filters"] = f"fixtureLeagues:{lig_id}"
         return self._get(f"fixtures/date/{tarih}", params).get("data", [])
 
-    def get_livescores(self) -> list:
-        params = {"include": "participants;scores;state;league;events"}
+    def get_fixtures_multi_league(self, tarih, lig_ids):
+        lig_str = ",".join(str(i) for i in lig_ids)
+        params = {
+            "include": "participants;scores;state;league",
+            "timezone": "Europe/Istanbul",
+            "filters": f"fixtureLeagues:{lig_str}",
+        }
+        return self._get(f"fixtures/date/{tarih}", params).get("data", [])
+
+    def get_livescores(self):
+        params = {"include": "participants;scores;state;league"}
         return self._get("livescores/inplay", params).get("data", [])
 
-    def get_standings(self, season_id: int) -> list:
+    def get_standings(self, season_id):
         params = {"include": "participant;details"}
         return self._get(f"standings/seasons/{season_id}", params).get("data", [])
 
-    def get_league_season(self, league_id: int) -> int:
-        """Ligin güncel sezon ID'sini döndürür."""
+    def get_league_season(self, league_id):
         params = {"include": "currentSeason"}
         data = self._get(f"leagues/{league_id}", params).get("data", {})
-        # API bazen 'currentseason' (küçük harf) döndürür
         season = data.get("currentSeason") or data.get("currentseason") or {}
         return season.get("id", 0)
 
-    def get_h2h(self, team1_id: int, team2_id: int) -> list:
+    def get_h2h(self, team1_id, team2_id):
         params = {"include": "participants;scores"}
         return self._get(f"fixtures/head-to-head/{team1_id}/{team2_id}", params).get("data", [])
 
-    def get_topscorers(self, season_id: int) -> list:
+    def get_topscorers(self, season_id):
         params = {"include": "player;participant"}
         return self._get(f"topscorers/seasons/{season_id}", params).get("data", [])
 
 
-# ===================== YARDIMCI =====================
-def get_team_name(fixture: dict, location: str) -> str:
+def get_team_name(fixture, location):
     for p in fixture.get("participants", []):
         if p.get("meta", {}).get("location") == location:
             return p.get("name", "?")
     return "?"
 
-def get_team_id(fixture: dict, location: str) -> int:
+def get_team_id(fixture, location):
     for p in fixture.get("participants", []):
         if p.get("meta", {}).get("location") == location:
             return p.get("id", 0)
     return 0
 
-def get_score(fixture: dict) -> tuple:
+def get_score(fixture):
     h = a = None
-    for score in fixture.get("scores", []):
-        if score.get("description") == "CURRENT":
-            goals = score.get("score", {})
-            if goals.get("participant") == "home":
-                h = goals.get("goals")
-            elif goals.get("participant") == "away":
-                a = goals.get("goals")
+    for s in fixture.get("scores", []):
+        if s.get("description") == "CURRENT":
+            sc = s.get("score", {})
+            if sc.get("participant") == "home":
+                h = sc.get("goals", 0)
+            elif sc.get("participant") == "away":
+                a = sc.get("goals", 0)
     return h, a
 
-def get_state(fixture: dict) -> str:
+def get_state(fixture):
     state = fixture.get("state", {})
-    return state.get("short_name", "NS") if isinstance(state, dict) else "NS"
+    if isinstance(state, dict):
+        return state.get("short_name", "NS")
+    return "NS"
 
-def format_time(dt_str: str) -> str:
+def format_time(dt_str):
     try:
         dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
         return (dt + timedelta(hours=3)).strftime("%H:%M")
-    except:
+    except Exception:
         return "?"
 
-
-# ===================== FORMAT =====================
-def format_mac_listesi(maclar: list, lig_adi: str = "") -> str:
-    if not maclar:
-        return f"📭 {'Bugün' if not lig_adi else lig_adi} için maç bulunamadı."
-
-    baslik = f"⚽ *{lig_adi} MAÇLARI*" if lig_adi else "⚽ *BUGÜNÜN MAÇLARI*"
-    mesaj = f"{baslik} ({datetime.now().strftime('%d.%m.%Y')})\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
-
-    for mac in maclar[:20]:
-        ev = get_team_name(mac, "home")
-        dep = get_team_name(mac, "away")
-        durum = get_state(mac)
-        saat = format_time(mac.get("starting_at", ""))
-        h_gol, a_gol = get_score(mac)
-        lig = mac.get("league", {}).get("name", "") if isinstance(mac.get("league"), dict) else ""
-
-        if not lig_adi and lig:
-            pass  # lig adı zaten başlıkta
-
-        if durum == "FT":
-            mesaj += f"✅ *{ev}* {h_gol}-{a_gol} *{dep}*\n"
-        elif durum in ["1H", "2H", "HT", "ET"]:
-            mesaj += f"🔴 *{ev}* {h_gol}-{a_gol} *{dep}* _{durum}_\n"
-        else:
-            mesaj += f"🕐 {saat} | *{ev}* vs *{dep}*\n"
-
-    return mesaj
-
-
-def parse_details(details) -> dict:
-    """
-    Sportmonks details array'ini parse eder.
-    type_id: 129=oynanan, 130=galibiyet, 131=beraberlik, 132=mağlubiyet
-             133=gol_atti, 134=gol_yedi, 179=averaj
-    """
+def parse_details(details):
     result = {}
     if isinstance(details, list):
-        mapping = {
-            129: "o", 130: "g", 131: "b", 132: "m",
-            133: "gf", 134: "ga", 179: "avg"
-        }
+        mapping = {129: "o", 130: "g", 131: "b", 132: "m", 133: "gf", 134: "ga", 179: "avg"}
         for item in details:
             tid = item.get("type_id")
             if tid in mapping:
@@ -175,15 +141,49 @@ def parse_details(details) -> dict:
     return result
 
 
-def format_standings(tablo: list, lig_adi: str) -> str:
+def format_mac_listesi(maclar, lig_adi=""):
+    if not maclar:
+        label = lig_adi if lig_adi else "Bugun"
+        return f"Bugün {label} için maç bulunamadı."
+
+    baslik = f"MACLAR: {lig_adi}" if lig_adi else "BUGÜNÜN MAÇLARI"
+    tarih_str = datetime.now().strftime("%d.%m.%Y")
+    mesaj = f"*{baslik}* ({tarih_str})\n"
+    mesaj += "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+
+    grouped = {}
+    for mac in maclar:
+        lig_obj = mac.get("league", {})
+        lig_name = lig_obj.get("name", "Diger") if isinstance(lig_obj, dict) else "Diger"
+        grouped.setdefault(lig_name, []).append(mac)
+
+    for lig_name, lig_maclar in grouped.items():
+        if not lig_adi:
+            mesaj += f"*{lig_name}*\n"
+        for mac in lig_maclar:
+            ev = get_team_name(mac, "home")
+            dep = get_team_name(mac, "away")
+            durum = get_state(mac)
+            saat = format_time(mac.get("starting_at", ""))
+            h, a = get_score(mac)
+            if durum == "FT":
+                mesaj += f"   *{ev}* {h}-{a} *{dep}*\n"
+            elif durum in ["1H", "2H", "HT", "ET", "LIVE"]:
+                mesaj += f"   CANLI *{ev}* {h}-{a} *{dep}* ({durum})\n"
+            else:
+                mesaj += f"   {saat} | {ev} vs {dep}\n"
+        mesaj += "\n"
+    return mesaj.strip()
+
+
+def format_standings(tablo, lig_adi):
     if not tablo:
-        return "❌ Puan durumu alınamadı."
-
-    mesaj = f"📊 *{lig_adi} PUAN DURUMU*\n━━━━━━━━━━━━━━━━━━━━━━\n"
-    mesaj += "`#   Takım            O  G  B  M   P  Av`\n"
-
+        return "Puan durumu alinamadi."
+    mesaj = f"*{lig_adi} PUAN DURUMU*\n"
+    mesaj += "━━━━━━━━━━━━━━━━━━━━━━\n"
+    mesaj += "`#   Takim            O  G  B  M   P  Av`\n"
     for satir in tablo[:18]:
-        pos = satir.get("position", "?")
+        pos = satir.get("position", 0)
         takim = satir.get("participant", {}).get("name", "?")[:13].ljust(13)
         d = parse_details(satir.get("details", []))
         o = str(d.get("o", 0)).rjust(2)
@@ -193,31 +193,36 @@ def format_standings(tablo: list, lig_adi: str) -> str:
         p = str(satir.get("points", 0)).rjust(3)
         avg = d.get("avg", 0)
         avg_str = (f"+{avg}" if avg > 0 else str(avg)).rjust(3)
-        emoji = "🏆" if pos <= 4 else ("🔴" if pos >= len(tablo) - 2 else "  ")
-        mesaj += f"`{str(pos).rjust(2)} {emoji}{takim} {o} {g} {b} {m} {p} {avg_str}`\n"
-
+        emoji = "TP" if pos <= 4 else ("D" if pos >= len(tablo) - 2 else " ")
+        mesaj += f"`{str(pos).rjust(2)} {emoji} {takim} {o} {g} {b} {m} {p} {avg_str}`\n"
     return mesaj
 
 
-# ===================== TAHMİN =====================
 class TahminMotoru:
-
     @staticmethod
-    def form_analiz(maclar: list, takim_id: int) -> dict:
+    def form_analiz(maclar, takim_id):
         g = b = m = att = yedi = 0
         form_str = ""
         for mac in maclar[-6:]:
-            h_gol, a_gol = get_score(mac)
-            if h_gol is None:
+            h, a = get_score(mac)
+            if h is None:
                 continue
-            ev_mi = any(p.get("id") == takim_id and p.get("meta", {}).get("location") == "home"
-                        for p in mac.get("participants", []))
-            a, y = (h_gol, a_gol) if ev_mi else (a_gol, h_gol)
-            att += a or 0
-            yedi += y or 0
-            if a > y: g += 1; form_str = "W" + form_str
-            elif a == y: b += 1; form_str = "D" + form_str
-            else: m += 1; form_str = "L" + form_str
+            ev_mi = any(
+                p.get("id") == takim_id and p.get("meta", {}).get("location") == "home"
+                for p in mac.get("participants", [])
+            )
+            at_, ye_ = (h, a) if ev_mi else (a, h)
+            att += at_ or 0
+            yedi += ye_ or 0
+            if at_ > ye_:
+                g += 1
+                form_str = "W" + form_str
+            elif at_ == ye_:
+                b += 1
+                form_str = "D" + form_str
+            else:
+                m += 1
+                form_str = "L" + form_str
         top = g + b + m
         return {
             "g": g, "b": b, "m": m, "att": att, "yedi": yedi,
@@ -226,13 +231,16 @@ class TahminMotoru:
         }
 
     @staticmethod
-    def h2h_analiz(maclar: list, ev_id: int) -> dict:
+    def h2h_analiz(maclar, ev_id):
         eg = dg = b = 0
         for mac in maclar[-8:]:
             h, a = get_score(mac)
-            if h is None: continue
-            ev_mi = any(p.get("id") == ev_id and p.get("meta", {}).get("location") == "home"
-                        for p in mac.get("participants", []))
+            if h is None:
+                continue
+            ev_mi = any(
+                p.get("id") == ev_id and p.get("meta", {}).get("location") == "home"
+                for p in mac.get("participants", [])
+            )
             if ev_mi:
                 if h > a: eg += 1
                 elif h == a: b += 1
@@ -244,122 +252,112 @@ class TahminMotoru:
         return {"eg": eg, "dg": dg, "b": b, "toplam": eg + dg + b}
 
     @staticmethod
-    def tahmin_uret(ev_form: dict, dep_form: dict, h2h: dict = None) -> tuple:
+    def tahmin_uret(ev_form, dep_form, h2h=None):
         ev_p = ev_form["form_puani"] + 10
         dep_p = dep_form["form_puani"]
-
         if h2h and h2h["toplam"] > 0:
-            h2h_bonus = (h2h["eg"] - h2h["dg"]) / h2h["toplam"] * 15
-            ev_p += h2h_bonus
-
-        gol_bonus_ev = ev_form["att"] / max(ev_form["g"] + ev_form["b"] + ev_form["m"], 1) * 3
-        gol_bonus_dep = dep_form["att"] / max(dep_form["g"] + dep_form["b"] + dep_form["m"], 1) * 3
-        ev_p += gol_bonus_ev
-        dep_p += gol_bonus_dep
-
+            ev_p += (h2h["eg"] - h2h["dg"]) / h2h["toplam"] * 15
+        top_ev = max(ev_form["g"] + ev_form["b"] + ev_form["m"], 1)
+        top_dep = max(dep_form["g"] + dep_form["b"] + dep_form["m"], 1)
+        ev_p += ev_form["att"] / top_ev * 3
+        dep_p += dep_form["att"] / top_dep * 3
         fark = ev_p - dep_p
-        if fark > 18: return "🏠 Ev Sahibi Kazanır", min(83, 62 + int(fark / 2))
-        elif fark > 8: return "🏠 Ev / Beraberlik", 57
-        elif fark < -18: return "✈️ Deplasman Kazanır", min(81, 60 + int(abs(fark) / 2))
-        elif fark < -8: return "✈️ Dep / Beraberlik", 55
-        else: return "🤝 Beraberlik", 53
+        if fark > 18: return "Ev Sahibi Kazanir", min(83, 62 + int(fark / 2))
+        elif fark > 8: return "Ev / Beraberlik", 57
+        elif fark < -18: return "Deplasman Kazanir", min(81, 60 + int(abs(fark) / 2))
+        elif fark < -8: return "Dep / Beraberlik", 55
+        else: return "Beraberlik", 53
 
 
-# ===================== BOT =====================
 api = SportmonksAPI(SPORTMONKS_TOKEN)
 tahmin_motoru = TahminMotoru()
-bildirim_listesi: set = set()
-_season_cache: dict = {}
+bildirim_listesi = set()
+_season_cache = {}
 
 
-def get_season_id(league_id: int) -> int:
-    if league_id in _season_cache:
-        return _season_cache[league_id]
-    season_id = api.get_league_season(league_id)
-    if season_id:
-        _season_cache[league_id] = season_id
-    return season_id
+def get_season_id(league_id):
+    if league_id not in _season_cache:
+        sid = api.get_league_season(league_id)
+        if sid:
+            _season_cache[league_id] = sid
+    return _season_cache.get(league_id, 0)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "⚽ *FUTBOL ANALİZ & TAHMİN BOTU*\n\n"
-        "📌 *Komutlar:*\n\n"
-        "🗓 /bugun - Bugünün maçları\n"
-        "🔴 /canli - Canlı maçlar\n"
-        "📊 /puan - Puan durumu\n"
-        "🎯 /tahmin - Maç tahminleri + H2H\n"
-        "📈 /istatistik - Takım istatistikleri\n"
-        "👑 /golkralligi - Gol krallığı\n"
-        "🔔 /bildirim - Günlük bildirim\n\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "💡 Sportmonks API • 2500+ Lig",
-        parse_mode="Markdown"
+    text = (
+        "*FUTBOL ANALIZ BOTUNA HOSGELDIN!*\n\n"
+        "/bugun - Bugünün maçları\n"
+        "/canli - Canlı maçlar\n"
+        "/puan - Puan durumu\n"
+        "/tahmin - Maç tahminleri + H2H\n"
+        "/istatistik - Takım istatistikleri\n"
+        "/golkralligi - Gol krallığı\n"
+        "/bildirim - Günlük bildirim\n\n"
+        "Sportmonks API - 2500+ Lig"
     )
+    await update.message.reply_text(text, parse_mode="Markdown")
 
 
 async def bugun(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton(a, callback_data=f"bugun|{i}")] for a, i in LIGLER.items()]
-    keyboard.append([InlineKeyboardButton("🌍 Tüm Ligler", callback_data="bugun|0")])
+    keyboard.append([InlineKeyboardButton("Tüm Seçili Ligler", callback_data="bugun|0")])
     await update.message.reply_text(
-        "🗓 *Hangi ligin maçlarını görmek istiyorsun?*",
-        reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        "Hangi ligin maçlarını görmek istiyorsun?",
+        reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 async def canli(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("⏳ Canlı maçlar yükleniyor...")
+    await update.message.reply_text("Canlı maçlar yükleniyor...")
     maclar = api.get_livescores()
-    if not maclar:
-        await update.message.reply_text("📭 Şu an canlı maç yok.")
+    secili = [m for m in maclar if m.get("league", {}).get("id") in TUMU_LIG_IDS]
+    goster = secili if secili else maclar[:15]
+    if not goster:
+        await update.message.reply_text("Şu an canlı maç yok.")
         return
-    mesaj = f"🔴 *CANLI MAÇLAR* ({len(maclar)} maç)\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
-    for mac in maclar[:15]:
+    mesaj = f"*CANLI MAÇLAR* ({len(goster)} maç)\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    for mac in goster[:15]:
         ev = get_team_name(mac, "home")
         dep = get_team_name(mac, "away")
         h, a = get_score(mac)
-        lig = mac.get("league", {}).get("name", "") if isinstance(mac.get("league"), dict) else ""
-        mesaj += f"⚽ _{lig}_\n🔴 *{ev}* {h}-{a} *{dep}*\n\n"
+        lig_obj = mac.get("league", {})
+        lig = lig_obj.get("name", "") if isinstance(lig_obj, dict) else ""
+        durum = get_state(mac)
+        mesaj += f"_{lig}_\n*{ev}* {h}-{a} *{dep}* ({durum})\n\n"
     await update.message.reply_text(mesaj, parse_mode="Markdown")
 
 
 async def puan_durumu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton(a, callback_data=f"puan|{i}")] for a, i in LIGLER.items()]
-    await update.message.reply_text(
-        "📊 *Hangi ligin puan durumunu görmek istiyorsun?*",
-        reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    await update.message.reply_text("Hangi ligin puan durumunu görmek istiyorsun?",
+                                    reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 async def tahmin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton(a, callback_data=f"tahmin|{i}")] for a, i in LIGLER.items()]
-    await update.message.reply_text(
-        "🎯 *Hangi lig için tahmin almak istiyorsun?*",
-        reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    await update.message.reply_text("Hangi lig için tahmin almak istiyorsun?",
+                                    reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 async def istatistik(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton(a, callback_data=f"istat|{i}")] for a, i in LIGLER.items()]
-    await update.message.reply_text(
-        "📈 *Hangi ligin istatistiklerini görmek istiyorsun?*",
-        reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    await update.message.reply_text("Hangi ligin istatistiklerini görmek istiyorsun?",
+                                    reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 async def golkralligi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton(a, callback_data=f"golkral|{i}")] for a, i in LIGLER.items()]
-    await update.message.reply_text(
-        "👑 *Hangi ligin gol krallığını görmek istiyorsun?*",
-        reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    await update.message.reply_text("Hangi ligin gol krallığını görmek istiyorsun?",
+                                    reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 async def bildirim(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id in bildirim_listesi:
         bildirim_listesi.remove(user_id)
-        await update.message.reply_text("🔕 Bildirimler *kapatıldı*.", parse_mode="Markdown")
+        await update.message.reply_text("Bildirimler kapatıldı.")
     else:
         bildirim_listesi.add(user_id)
-        await update.message.reply_text(
-            f"🔔 Bildirimler *açıldı!* Her gün {BILDIRIM_SAATI}'de özet gelecek.",
-            parse_mode="Markdown")
+        await update.message.reply_text(f"Bildirimler açıldı! Her gün {BILDIRIM_SAATI}'de özet gelecek.")
 
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -367,69 +365,67 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     islem, deger = query.data.split("|", 1)
     lig_id = int(deger)
-    lig_adi = next((a for a, i in LIGLER.items() if i == lig_id), "Tüm Ligler")
+    lig_adi = next((a for a, i in LIGLER.items() if i == lig_id), "Tum Ligler")
+    tarih = datetime.now().strftime("%Y-%m-%d")
 
     if islem == "bugun":
-        await query.edit_message_text("⏳ Maçlar yükleniyor...")
-        tarih = datetime.now().strftime("%Y-%m-%d")
-        maclar = api.get_fixtures_by_date(tarih, lig_id if lig_id else None)
+        await query.edit_message_text("Maçlar yükleniyor...")
+        if lig_id == 0:
+            maclar = api.get_fixtures_multi_league(tarih, TUMU_LIG_IDS)
+        else:
+            maclar = api.get_fixtures_by_date(tarih, lig_id)
         await query.edit_message_text(format_mac_listesi(maclar, lig_adi), parse_mode="Markdown")
 
     elif islem == "puan":
-        await query.edit_message_text("⏳ Puan durumu yükleniyor...")
+        await query.edit_message_text("Puan durumu yükleniyor...")
         season_id = get_season_id(lig_id)
         if not season_id:
-            await query.edit_message_text("❌ Sezon bilgisi alınamadı.")
+            await query.edit_message_text("Sezon bilgisi alinamadi.")
             return
         tablo = api.get_standings(season_id)
         await query.edit_message_text(format_standings(tablo, lig_adi), parse_mode="Markdown")
 
     elif islem == "tahmin":
-        await query.edit_message_text("⏳ Tahminler hazırlanıyor...")
-        tarih = datetime.now().strftime("%Y-%m-%d")
+        await query.edit_message_text("Tahminler hazırlanıyor...")
         maclar = api.get_fixtures_by_date(tarih, lig_id)
         if not maclar:
-            await query.edit_message_text(f"📭 {lig_adi} için bugün maç yok.")
+            await query.edit_message_text(f"{lig_adi} için bugün maç yok.")
             return
-
-        mesaj = f"🎯 *{lig_adi} TAHMİNLERİ*\n📅 {datetime.now().strftime('%d.%m.%Y')}\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        tarih_str = datetime.now().strftime("%d.%m.%Y")
+        mesaj = f"*{lig_adi} TAHMINLERI* - {tarih_str}\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
         for mac in maclar[:4]:
             ev_adi = get_team_name(mac, "home")
             dep_adi = get_team_name(mac, "away")
             ev_id = get_team_id(mac, "home")
             dep_id = get_team_id(mac, "away")
             saat = format_time(mac.get("starting_at", ""))
-
             h2h_maclar = api.get_h2h(ev_id, dep_id) if ev_id and dep_id else []
             h2h_data = tahmin_motoru.h2h_analiz(h2h_maclar, ev_id)
             ev_form = tahmin_motoru.form_analiz(h2h_maclar, ev_id)
             dep_form = tahmin_motoru.form_analiz(h2h_maclar, dep_id)
-            tahmin_sonuc, guven = tahmin_motoru.tahmin_uret(ev_form, dep_form, h2h_data)
-            cubuk = "█" * int(guven/10) + "░" * (10 - int(guven/10))
-
-            mesaj += f"⚔️ *{ev_adi}* vs *{dep_adi}*\n"
-            mesaj += f"   🕐 {saat}\n"
-            mesaj += f"   🏠 Form: `{ev_form['form_str']}` ({ev_form['g']}G {ev_form['b']}B {ev_form['m']}M)\n"
-            mesaj += f"   ✈️ Form: `{dep_form['form_str']}` ({dep_form['g']}G {dep_form['b']}B {dep_form['m']}M)\n"
+            sonuc, guven = tahmin_motoru.tahmin_uret(ev_form, dep_form, h2h_data)
+            cubuk = "X" * int(guven / 10) + "." * (10 - int(guven / 10))
+            mesaj += f"*{ev_adi}* vs *{dep_adi}*\n"
+            mesaj += f"   Saat: {saat}\n"
+            mesaj += f"   Ev Form: {ev_form['form_str']} ({ev_form['g']}G {ev_form['b']}B {ev_form['m']}M)\n"
+            mesaj += f"   Dep Form: {dep_form['form_str']} ({dep_form['g']}G {dep_form['b']}B {dep_form['m']}M)\n"
             if h2h_data["toplam"] > 0:
-                mesaj += f"   ⚔️ H2H son {h2h_data['toplam']} maç: {h2h_data['eg']}G {h2h_data['b']}B {h2h_data['dg']}M\n"
-            mesaj += f"   💡 *{tahmin_sonuc}*\n"
-            mesaj += f"   📈 [{cubuk}] %{guven}\n\n"
-
-        mesaj += "⚠️ _Form ve H2H analizine dayanır._"
+                mesaj += f"   H2H: {h2h_data['eg']}G {h2h_data['b']}B {h2h_data['dg']}M\n"
+            mesaj += f"   *{sonuc}* [{cubuk}] %{guven}\n\n"
+        mesaj += "_Istatistik ve H2H analizine dayanir._"
         await query.edit_message_text(mesaj, parse_mode="Markdown")
 
     elif islem == "istat":
-        await query.edit_message_text("⏳ İstatistikler yükleniyor...")
+        await query.edit_message_text("İstatistikler yükleniyor...")
         season_id = get_season_id(lig_id)
         if not season_id:
-            await query.edit_message_text("❌ Sezon bilgisi alınamadı.")
+            await query.edit_message_text("Sezon bilgisi alinamadi.")
             return
         tablo = api.get_standings(season_id)
         if not tablo:
-            await query.edit_message_text("❌ Veri alınamadı.")
+            await query.edit_message_text("Veri alinamadi.")
             return
-        mesaj = f"📈 *{lig_adi} İSTATİSTİKLER*\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        mesaj = f"*{lig_adi} ISTATISTIKLER*\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
         for s in tablo[:12]:
             takim = s.get("participant", {}).get("name", "?")
             pos = s.get("position", "?")
@@ -443,28 +439,26 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ga = d.get("ga", "?")
             avg = d.get("avg", 0)
             avg_str = f"+{avg}" if avg > 0 else str(avg)
-            emoji = "🏆" if pos <= 4 else ("🔴" if pos >= 16 else "🔵")
-            mesaj += f"{emoji} *{pos}. {takim}* — {p} puan\n"
-            mesaj += f"   {o} maç: {g}G {b}B {m}M\n"
-            mesaj += f"   ⚽ {gf} gol attı / {ga} yedi | Averaj: {avg_str}\n\n"
+            mesaj += f"*{pos}. {takim}* - {p} puan\n"
+            mesaj += f"   {o}mac: {g}G {b}B {m}M | {gf}/{ga} gol | Av:{avg_str}\n\n"
         await query.edit_message_text(mesaj, parse_mode="Markdown")
 
     elif islem == "golkral":
-        await query.edit_message_text("⏳ Gol krallığı yükleniyor...")
+        await query.edit_message_text("Gol krallığı yükleniyor...")
         season_id = get_season_id(lig_id)
         if not season_id:
-            await query.edit_message_text("❌ Sezon bilgisi alınamadı.")
+            await query.edit_message_text("Sezon bilgisi alinamadi.")
             return
         skorerler = api.get_topscorers(season_id)
         if not skorerler:
-            await query.edit_message_text("❌ Gol krallığı verisi alınamadı.")
+            await query.edit_message_text("Veri alinamadi.")
             return
-        mesaj = f"👑 *{lig_adi} GOL KRALLIGI*\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        mesaj = f"*{lig_adi} GOL KRALLIGI*\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
         for i, s in enumerate(skorerler[:10], 1):
             oyuncu = s.get("player", {}).get("name", "?") if isinstance(s.get("player"), dict) else "?"
             takim = s.get("participant", {}).get("name", "?") if isinstance(s.get("participant"), dict) else "?"
             gol = s.get("total", "?")
-            mesaj += f"{i}. *{oyuncu}* — {gol} ⚽\n   _{takim}_\n\n"
+            mesaj += f"{i}. *{oyuncu}* - {gol} gol\n   _{takim}_\n\n"
         await query.edit_message_text(mesaj, parse_mode="Markdown")
 
 
@@ -472,13 +466,12 @@ async def gunluk_bildirim_gonder(context: ContextTypes.DEFAULT_TYPE):
     if not bildirim_listesi:
         return
     tarih = datetime.now().strftime("%Y-%m-%d")
-    maclar = api.get_fixtures_by_date(tarih, 600) + api.get_fixtures_by_date(tarih, 8)
-    mesaj = f"🌅 *GÜNLÜK FUTBOL BÜLTENİ*\n{datetime.now().strftime('%d.%m.%Y')}\n\n"
-    mesaj += format_mac_listesi(maclar[:12])
+    maclar = api.get_fixtures_multi_league(tarih, TUMU_LIG_IDS)
+    mesaj = "GUNLUK FUTBOL BULTENI\n" + format_mac_listesi(maclar)
     for user_id in bildirim_listesi.copy():
         try:
             await context.bot.send_message(chat_id=user_id, text=mesaj, parse_mode="Markdown")
-        except:
+        except Exception:
             bildirim_listesi.discard(user_id)
 
 
@@ -498,7 +491,7 @@ def main():
         gunluk_bildirim_gonder,
         time=datetime.now().replace(hour=saat, minute=dakika, second=0).time()
     )
-    logger.info("⚽ Futbol Bot v3 başlatıldı!")
+    logger.info("Futbol Bot v4 basladi!")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
