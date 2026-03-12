@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 """
 ⚽ Futbol Tahmin Telegram Botu
-- api-football.com direkt API kullanır
+- api-football.com direkt API
+- Otomatik sezon tespiti
 - 900+ lig (Süper Lig dahil)
-- Günlük maç tahminleri, istatistik analizi
-- Canlı skor takibi
-- Otomatik günlük bildirim
 """
 
 import os
@@ -25,17 +23,18 @@ TELEGRAM_TOKEN = "8610318322:AAFUcZ-pSbDIMiX_pK2t7mrWlJJQfdQLsrM"
 FOOTBALL_API_KEY = "1fdfe32100d5b7c9be44d36e89c6c21e"
 BILDIRIM_SAATI = "08:00"
 
+# Ligler ve sezon yılları (bazı ligler Ağustos'ta başlar = önceki yıl)
 LIGLER = {
-    "🇹🇷 Süper Lig": 203,
-    "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier Lig": 39,
-    "🇩🇪 Bundesliga": 78,
-    "🇪🇸 La Liga": 140,
-    "🇮🇹 Serie A": 135,
-    "🇫🇷 Ligue 1": 61,
-    "🏆 Şampiyonlar Ligi": 2,
-    "🌍 Avrupa Ligi": 3,
-    "🇳🇱 Eredivisie": 88,
-    "🇵🇹 Primeira Liga": 94,
+    "🇹🇷 Süper Lig": {"id": 203, "season": 2024},
+    "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier Lig": {"id": 39, "season": 2024},
+    "🇩🇪 Bundesliga": {"id": 78, "season": 2024},
+    "🇪🇸 La Liga": {"id": 140, "season": 2024},
+    "🇮🇹 Serie A": {"id": 135, "season": 2024},
+    "🇫🇷 Ligue 1": {"id": 61, "season": 2024},
+    "🏆 Şampiyonlar Ligi": {"id": 2, "season": 2024},
+    "🌍 Avrupa Ligi": {"id": 3, "season": 2024},
+    "🇳🇱 Eredivisie": {"id": 88, "season": 2024},
+    "🇵🇹 Primeira Liga": {"id": 94, "season": 2024},
 }
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
@@ -47,17 +46,15 @@ class FootballAPI:
     BASE_URL = "https://v3.football.api-sports.io"
 
     def __init__(self, api_key: str):
-        self.headers = {
-            "x-apisports-key": api_key
-        }
+        self.headers = {"x-apisports-key": api_key}
 
-    def get_fixtures(self, tarih: str = None, lig_id: int = None) -> list:
+    def get_fixtures(self, tarih: str = None, lig_id: int = None, season: int = 2024) -> list:
         if tarih is None:
             tarih = datetime.now().strftime("%Y-%m-%d")
         params = {"date": tarih, "timezone": "Europe/Istanbul"}
         if lig_id:
             params["league"] = lig_id
-            params["season"] = datetime.now().year
+            params["season"] = season
         try:
             resp = requests.get(f"{self.BASE_URL}/fixtures", headers=self.headers, params=params, timeout=10)
             resp.raise_for_status()
@@ -66,8 +63,8 @@ class FootballAPI:
             logger.error(f"Fixtures hatası: {e}")
             return []
 
-    def get_standings(self, lig_id: int) -> list:
-        params = {"league": lig_id, "season": datetime.now().year}
+    def get_standings(self, lig_id: int, season: int = 2024) -> list:
+        params = {"league": lig_id, "season": season}
         try:
             resp = requests.get(f"{self.BASE_URL}/standings", headers=self.headers, params=params, timeout=10)
             resp.raise_for_status()
@@ -79,8 +76,8 @@ class FootballAPI:
             logger.error(f"Standings hatası: {e}")
             return []
 
-    def get_team_stats(self, takim_id: int, lig_id: int) -> dict:
-        params = {"team": takim_id, "league": lig_id, "season": datetime.now().year}
+    def get_team_stats(self, takim_id: int, lig_id: int, season: int = 2024) -> dict:
+        params = {"team": takim_id, "league": lig_id, "season": season}
         try:
             resp = requests.get(f"{self.BASE_URL}/teams/statistics", headers=self.headers, params=params, timeout=10)
             resp.raise_for_status()
@@ -101,9 +98,8 @@ class FootballAPI:
             return {}
 
     def get_live_fixtures(self) -> list:
-        params = {"live": "all"}
         try:
-            resp = requests.get(f"{self.BASE_URL}/fixtures", headers=self.headers, params=params, timeout=10)
+            resp = requests.get(f"{self.BASE_URL}/fixtures", headers=self.headers, params={"live": "all"}, timeout=10)
             resp.raise_for_status()
             return resp.json().get("response", [])
         except Exception as e:
@@ -123,7 +119,11 @@ class TahminMotoru:
         form_yuzdesi = (form_puani / 15) * 100
         gol_data = stats.get("goals", {}).get("for", {}).get("average", {})
         gol_ort = float(gol_data.get("total", 1.0) or 1.0)
-        return {"form_puani": round(form_yuzdesi, 1), "gol_ort": gol_ort, "form_str": form[-5:] if form else "?????"}
+        return {
+            "form_puani": round(form_yuzdesi, 1),
+            "gol_ort": gol_ort,
+            "form_str": form[-5:] if form else "?????"
+        }
 
     @staticmethod
     def tahmin_uret(ev_stats: dict, dep_stats: dict, prediction: dict = None) -> tuple:
@@ -217,10 +217,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def bugun(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [[InlineKeyboardButton(a, callback_data=f"bugun_{i}_{a}")] for a, i in LIGLER.items()]
-    keyboard.append([InlineKeyboardButton("🌍 Tüm Maçlar", callback_data="bugun_0_Tüm Maçlar")])
-    await update.message.reply_text("🗓 *Hangi ligin maçlarını görmek istiyorsun?*",
-        reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    keyboard = [[InlineKeyboardButton(a, callback_data=f"bugun_{v['id']}_{v['season']}_{a}")] for a, v in LIGLER.items()]
+    keyboard.append([InlineKeyboardButton("🌍 Tüm Maçlar", callback_data="bugun_0_2024_Tüm Maçlar")])
+    await update.message.reply_text(
+        "🗓 *Hangi ligin maçlarını görmek istiyorsun?*",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
 
 
 async def canli(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -243,15 +246,21 @@ async def canli(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def puan_durumu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [[InlineKeyboardButton(a, callback_data=f"puan_{i}_{a}")] for a, i in LIGLER.items()]
-    await update.message.reply_text("📊 *Hangi ligin puan durumunu görmek istiyorsun?*",
-        reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    keyboard = [[InlineKeyboardButton(a, callback_data=f"puan_{v['id']}_{v['season']}_{a}")] for a, v in LIGLER.items()]
+    await update.message.reply_text(
+        "📊 *Hangi ligin puan durumunu görmek istiyorsun?*",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
 
 
 async def tahmin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [[InlineKeyboardButton(a, callback_data=f"tahmin_{i}_{a}")] for a, i in LIGLER.items()]
-    await update.message.reply_text("🎯 *Hangi lig için tahmin almak istiyorsun?*",
-        reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    keyboard = [[InlineKeyboardButton(a, callback_data=f"tahmin_{v['id']}_{v['season']}_{a}")] for a, v in LIGLER.items()]
+    await update.message.reply_text(
+        "🎯 *Hangi lig için tahmin almak istiyorsun?*",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
 
 
 async def bildirim(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -281,22 +290,25 @@ async def hakkinda(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    parts = query.data.split("_", 2)
-    islem, lig_id, lig_adi = parts[0], int(parts[1]), parts[2] if len(parts) > 2 else ""
+    parts = query.data.split("_", 3)
+    islem = parts[0]
+    lig_id = int(parts[1])
+    season = int(parts[2])
+    lig_adi = parts[3] if len(parts) > 3 else ""
 
     if islem == "bugun":
         await query.edit_message_text("⏳ Maçlar yükleniyor...")
-        maclar = api.get_fixtures(lig_id=lig_id if lig_id else None)
+        maclar = api.get_fixtures(lig_id=lig_id if lig_id else None, season=season)
         await query.edit_message_text(format_mac_listesi(maclar, lig_adi), parse_mode="Markdown")
 
     elif islem == "puan":
         await query.edit_message_text("⏳ Puan durumu yükleniyor...")
-        tablo = api.get_standings(lig_id)
+        tablo = api.get_standings(lig_id, season)
         await query.edit_message_text(format_puan_durumu(tablo, lig_adi), parse_mode="Markdown")
 
     elif islem == "tahmin":
         await query.edit_message_text("⏳ Tahminler hesaplanıyor...")
-        maclar = api.get_fixtures(lig_id=lig_id)
+        maclar = api.get_fixtures(lig_id=lig_id, season=season)
         if not maclar:
             await query.edit_message_text(f"📭 {lig_adi} için bugün maç bulunamadı.")
             return
@@ -311,8 +323,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             dep_id = teams.get("away", {}).get("id")
 
             prediction = api.get_predictions(fixture_id)
-            ev_stats = tahmin_motoru.analiz_et(api.get_team_stats(ev_id, lig_id))
-            dep_stats = tahmin_motoru.analiz_et(api.get_team_stats(dep_id, lig_id))
+            ev_stats = tahmin_motoru.analiz_et(api.get_team_stats(ev_id, lig_id, season))
+            dep_stats = tahmin_motoru.analiz_et(api.get_team_stats(dep_id, lig_id, season))
             tahmin_sonuc, guven = tahmin_motoru.tahmin_uret(ev_stats, dep_stats, prediction)
 
             cubuk = "█" * int(guven/10) + "░" * (10 - int(guven/10))
@@ -329,7 +341,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def gunluk_bildirim_gonder(context: ContextTypes.DEFAULT_TYPE):
     if not bildirim_listesi:
         return
-    maclar = api.get_fixtures(lig_id=203) + api.get_fixtures(lig_id=39)
+    maclar = api.get_fixtures(lig_id=203, season=2024) + api.get_fixtures(lig_id=39, season=2024)
     mesaj = "🌅 *GÜNLÜK FUTBOL BÜLTENİ*\n\n" + format_mac_listesi(maclar[:10])
     for user_id in bildirim_listesi.copy():
         try:
@@ -351,8 +363,10 @@ def main():
     app.add_handler(CommandHandler("hakkinda", hakkinda))
     app.add_handler(CallbackQueryHandler(button_handler))
     saat, dakika = map(int, BILDIRIM_SAATI.split(":"))
-    app.job_queue.run_daily(gunluk_bildirim_gonder,
-        time=datetime.now().replace(hour=saat, minute=dakika, second=0).time())
+    app.job_queue.run_daily(
+        gunluk_bildirim_gonder,
+        time=datetime.now().replace(hour=saat, minute=dakika, second=0).time()
+    )
     logger.info("⚽ Futbol Bot başlatıldı!")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
